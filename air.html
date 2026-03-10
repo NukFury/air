@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32-C3 Air Quality Monitor | University of Cabuyao</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(145deg, #0B1026 0%, #1A1F3A 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            position: relative;
+            overflow-x: hidden;
+        }
+        
+        /* Animated background elements */
+        .bg-circle {
+            position: absolute;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+            filter: blur(60px);
+            z-index: 0;
+        }
+        
+        .circle1 {
+            width: 400px;
+            height: 400px;
+            top: -200px;
+            left: -200px;
+            animation: float 15s infinite ease-in-out;
+        }
+        
+        .circle2 {
+            width: 500px;
+            height: 500px;
+            bottom: -250px;
+            right: -250px;
+            background: linear-gradient(135deg, rgba(147, 51, 234, 0.15) 0%, rgba(236, 72, 153, 0.15) 100%);
+            animation: float 20s infinite ease-in-out reverse;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            33% { transform: translate(30px, -30px) rotate(120deg); }
+            66% { transform: translate(-20px, 20px) rotate(240deg); }
+        }
+        
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Header Section */
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            position: relative;
+        }
+        
+        .header h1 {
+            font-size: 3em;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, #a5b4fc 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+            letter-spacing: -0.5px;
+        }
+        
+        .header h1 span {
+            background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .header .subtitle {
+            color: rgba(255,255,255,0.7);
+            font-size: 1.1em;
+            font-weight: 300;
+            letter-spacing: 2px;
+        }
+        
+        .univ-badge {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 8px 20px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 50px;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: rgba(255,255,255,0.9);
+            font-size: 0.9em;
+        }
+        
+        /* Connection Status */
+        .connection-wrapper {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .status-grid {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .status-led {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            position: relative;
+        }
+        
+        .status-led.connected {
+            background: #10b981;
+            box-shadow: 0 0 20px #10b981;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-led.disconnected {
+            background: #ef4444;
+            box-shadow: 0 0 20px #ef4444;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .status-text {
+            color: white;
+            font-weight: 500;
+        }
+        
+        .wifi-signal {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .signal-bar {
+            width: 4px;
+            height: 20px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 2px;
+        }
+        
+        .signal-bar.active {
+            background: #10b981;
+        }
+        
+        .signal-bar:nth-child(2) { height: 14px; }
+        .signal-bar:nth-child(3) { height: 18px; }
+        .signal-bar:nth-child(4) { height: 22px; }
+        
+        .last-update {
+            color: rgba(255,255,255,0.6);
+            font-size: 0.95em;
+        }
+        
+        /* Main Dashboard */
+        .dashboard {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 25px;
+            margin-bottom: 25px;
+        }
+        
+        .card {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 30px;
+            padding: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255,255,255,0.2);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        }
+        
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .card:hover::before {
+            opacity: 1;
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .card-icon {
+            width: 40px;
+            height: 40px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+        }
+        
+        .card-title {
+            color: rgba(255,255,255,0.7);
+            font-weight: 500;
+            font-size: 0.95em;
+            letter-spacing: 1px;
+        }
+        
+        .card-value {
+            font-size: 3.5em;
+            font-weight: 700;
+            color: white;
+            line-height: 1;
+            margin-bottom: 5px;
+        }
+        
+        .card-unit {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.9em;
+            margin-left: 5px;
+            font-weight: 400;
+        }
+        
+        .card-trend {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: rgba(255,255,255,0.6);
+            font-size: 0.9em;
+        }
+        
+        /* CO Card Specific */
+        .co-card {
+            grid-column: span 1;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 0.9em;
+            margin-top: 15px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(5px);
+        }
+        
+        .status-good {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+        
+        .status-fair {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);
+        }
+        
+        .status-poor {
+            background: linear-gradient(135deg, #f97316, #ea580c);
+            color: white;
+            box-shadow: 0 4px 15px rgba(249, 115, 22, 0.3);
+        }
+        
+        .status-bad {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+            color: white;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
+        
+        /* Bottom Row */
+        .bottom-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 25px;
+        }
+        
+        .info-card {
+            background: rgba(255,255,255,0.03);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .info-card h3 {
+            color: white;
+            font-size: 1.1em;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+        
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        
+        .metric-item {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .metric-label {
+            color: rgba(255,255,255,0.6);
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 5px;
+        }
+        
+        .metric-value {
+            color: white;
+            font-size: 1.5em;
+            font-weight: 600;
+        }
+        
+        /* Timeline */
+        .timeline {
+            margin-top: 25px;
+        }
+        
+        .timeline-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .timeline-time {
+            color: rgba(255,255,255,0.5);
+            font-size: 0.8em;
+            min-width: 60px;
+        }
+        
+        .timeline-value {
+            color: white;
+            font-weight: 500;
+        }
+        
+        /* Footer */
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            color: rgba(255,255,255,0.4);
+            font-size: 0.9em;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .status-grid {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .bottom-row {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Loading animation */
+        .loading {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .loading::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+            animation: loading 1.5s infinite;
+        }
+        
+        @keyframes loading {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+    </style>
+    <!-- MQTT Library -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="bg-circle circle1"></div>
+    <div class="bg-circle circle2"></div>
+    
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>AIR QUALITY <span>MONITOR</span></h1>
+            <div class="subtitle">ESP32-C3 • MQ-7 • BME280</div>
+            <div class="univ-badge">
+                <i class="fas fa-university"></i> University of Cabuyao - College of Engineering
+            </div>
+        </div>
+        
+        <!-- Connection Status -->
+        <div class="connection-wrapper">
+            <div class="status-grid">
+                <div class="connection-status">
+                    <div id="statusLed" class="status-led disconnected"></div>
+                    <span id="statusText" class="status-text">Connecting to MQTT...</span>
+                </div>
+                
+                <div class="wifi-signal">
+                    <div class="signal-bar active"></div>
+                    <div class="signal-bar active"></div>
+                    <div class="signal-bar active"></div>
+                    <div class="signal-bar active"></div>
+                </div>
+                
+                <div class="last-update">
+                    <i class="far fa-clock"></i> Last Update: <span id="lastUpdate">--:--:--</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Main Dashboard -->
+        <div class="dashboard">
+            <!-- CO Card -->
+            <div class="card co-card">
+                <div class="card-header">
+                    <div class="card-icon"><i class="fas fa-wind"></i></div>
+                    <div class="card-title">CARBON MONOXIDE</div>
+                </div>
+                <div class="card-value" id="coValue">---</div>
+                <div class="card-unit">parts per million (ppm)</div>
+                <div id="coStatus" class="status-badge status-good">--</div>
+                <div class="card-trend">
+                    <i class="fas fa-thermometer-half"></i>
+                    <span>Air Quality Index</span>
+                </div>
+            </div>
+            
+            <!-- Temperature Card -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon"><i class="fas fa-temperature-high"></i></div>
+                    <div class="card-title">TEMPERATURE</div>
+                </div>
+                <div class="card-value" id="tempValue">--.<span style="font-size: 0.5em;">--</span></div>
+                <div class="card-unit">degrees Celsius (°C)</div>
+                <div class="card-trend">
+                    <i class="fas fa-arrow-up" style="color: #ef4444;"></i>
+                    <span>Ambient temperature</span>
+                </div>
+            </div>
+            
+            <!-- Humidity Card -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon"><i class="fas fa-tint"></i></div>
+                    <div class="card-title">HUMIDITY</div>
+                </div>
+                <div class="card-value" id="humValue">--</div>
+                <div class="card-unit">percent (%)</div>
+                <div class="card-trend">
+                    <i class="fas fa-water"></i>
+                    <span>Relative humidity</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Bottom Row -->
+        <div class="bottom-row">
+            <!-- Pressure & System Info -->
+            <div class="info-card">
+                <h3><i class="fas fa-chart-line"></i> Atmospheric Pressure</h3>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-label">Current</div>
+                        <div class="metric-value" id="presValue">---</div>
+                        <div style="color: rgba(255,255,255,0.5); font-size: 0.8em;">hPa</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">Sea Level</div>
+                        <div class="metric-value" id="presSeaValue">---</div>
+                        <div style="color: rgba(255,255,255,0.5); font-size: 0.8em;">hPa</div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <div style="display: flex; justify-content: space-between; color: rgba(255,255,255,0.7); margin-bottom: 5px;">
+                        <span>System Uptime</span>
+                        <span id="uptime">00:00:00</span>
+                    </div>
+                    <div style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;">
+                        <div id="uptimeBar" style="width: 100%; height: 100%; background: linear-gradient(90deg, #60a5fa, #a78bfa);"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Data Timeline -->
+            <div class="info-card">
+                <h3><i class="fas fa-history"></i> Recent Readings</h3>
+                <div class="timeline" id="timeline">
+                    <div class="timeline-item">
+                        <span class="timeline-time">--:--:--</span>
+                        <span class="timeline-value">Waiting for data...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <i class="fas fa-microchip"></i> ESP32-C3 SuperMini • MQ-7 CO Sensor • BME280 • Mobile Embedded Systems Laboratory
+        </div>
+    </div>
+
+    <script>
+        // MQTT Configuration
+        const mqttConfig = {
+            host: 'e70ac34de14f4ca0820814002eec9993.s1.eu.hivemq.cloud',
+            port: 8884,
+            username: 'Air12345',
+            password: 'Air12345',
+            topic: 'sensor/data'
+        };
+
+        // DOM Elements
+        const statusLed = document.getElementById('statusLed');
+        const statusText = document.getElementById('statusText');
+        const lastUpdateSpan = document.getElementById('lastUpdate');
+        const coValue = document.getElementById('coValue');
+        const tempValue = document.getElementById('tempValue');
+        const humValue = document.getElementById('humValue');
+        const presValue = document.getElementById('presValue');
+        const presSeaValue = document.getElementById('presSeaValue');
+        const coStatus = document.getElementById('coStatus');
+        const uptimeSpan = document.getElementById('uptime');
+        const timeline = document.getElementById('timeline');
+
+        // System uptime tracking
+        let startTime = Date.now();
+        let recentReadings = [];
+
+        // Update uptime every second
+        setInterval(() => {
+            const uptime = Math.floor((Date.now() - startTime) / 1000);
+            const hours = Math.floor(uptime / 3600).toString().padStart(2, '0');
+            const minutes = Math.floor((uptime % 3600) / 60).toString().padStart(2, '0');
+            const seconds = (uptime % 60).toString().padStart(2, '0');
+            uptimeSpan.textContent = `${hours}:${minutes}:${seconds}`;
+        }, 1000);
+
+        // Build WebSocket URL
+        const wsUrl = `wss://${mqttConfig.host}:${mqttConfig.port}/mqtt`;
+        
+        // Connect to MQTT broker
+        const client = mqtt.connect(wsUrl, {
+            username: mqttConfig.username,
+            password: mqttConfig.password,
+            clientId: 'webclient_' + Math.random().toString(16).substr(2, 8),
+            rejectUnauthorized: false
+        });
+
+        // Connection success
+        client.on('connect', () => {
+            statusLed.className = 'status-led connected';
+            statusText.innerHTML = '<i class="fas fa-check-circle"></i> Connected to MQTT Broker';
+            
+            client.subscribe(mqttConfig.topic, (err) => {
+                if (err) console.error('Subscription error:', err);
+            });
+        });
+
+        // Connection error
+        client.on('error', (error) => {
+            statusLed.className = 'status-led disconnected';
+            statusText.innerHTML = '<i class="fas fa-exclamation-circle"></i> Connection Error - Retrying...';
+        });
+
+        // Handle incoming messages
+        client.on('message', (topic, message) => {
+            const data = message.toString();
+            
+            try {
+                const coMatch = data.match(/CO:\s*(\d+)/);
+                const tempMatch = data.match(/T:\s*([\d.]+)/);
+                const humMatch = data.match(/H:\s*(\d+)/);
+                const presMatch = data.match(/P:\s*(\d+)/);
+                
+                if (coMatch) {
+                    const co = parseInt(coMatch[1]);
+                    
+                    // Animate number change
+                    animateValue(coValue, parseInt(coValue.textContent) || 0, co, 500);
+                    
+                    // Update status badge
+                    if (co < 50) {
+                        coStatus.className = 'status-badge status-good';
+                        coStatus.innerHTML = '<i class="fas fa-smile"></i> GOOD';
+                    } else if (co < 100) {
+                        coStatus.className = 'status-badge status-fair';
+                        coStatus.innerHTML = '<i class="fas fa-meh"></i> FAIR';
+                    } else if (co < 150) {
+                        coStatus.className = 'status-badge status-poor';
+                        coStatus.innerHTML = '<i class="fas fa-frown"></i> POOR';
+                    } else {
+                        coStatus.className = 'status-badge status-bad';
+                        coStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> BAD';
+                    }
+                }
+                
+                if (tempMatch) {
+                    const temp = parseFloat(tempMatch[1]);
+                    tempValue.innerHTML = temp.toFixed(1) + '<span style="font-size: 0.5em;">°C</span>';
+                }
+                
+                if (humMatch) {
+                    const hum = parseInt(humMatch[1]);
+                    humValue.textContent = hum;
+                }
+                
+                if (presMatch) {
+                    const pres = parseInt(presMatch[1]);
+                    presValue.textContent = pres;
+                    presSeaValue.textContent = pres;
+                }
+                
+                // Update timestamp
+                const now = new Date();
+                const timeString = now.toLocaleTimeString('en-US', { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit',
+                    hour12: true 
+                });
+                lastUpdateSpan.textContent = timeString;
+                
+                // Add to timeline
+                addToTimeline(data, timeString);
+                
+            } catch (e) {
+                console.error('Error parsing data:', e);
+            }
+        });
+
+        // Handle disconnect
+        client.on('close', () => {
+            statusLed.className = 'status-led disconnected';
+            statusText.innerHTML = '<i class="fas fa-plug"></i> Disconnected - Reconnecting...';
+        });
+
+        // Helper function to animate number changes
+        function animateValue(element, start, end, duration) {
+            const range = end - start;
+            const increment = range / (duration / 10);
+            let current = start;
+            
+            const timer = setInterval(() => {
+                current += increment;
+                if (current >= end) {
+                    element.textContent = end;
+                    clearInterval(timer);
+                } else {
+                    element.textContent = Math.round(current);
+                }
+            }, 10);
+        }
+
+        // Helper function to add readings to timeline
+        function addToTimeline(data, timeString) {
+            // Keep only last 5 readings
+            recentReadings.unshift({ time: timeString, data: data });
+            if (recentReadings.length > 5) recentReadings.pop();
+            
+            // Update timeline display
+            timeline.innerHTML = '';
+            recentReadings.forEach(reading => {
+                const item = document.createElement('div');
+                item.className = 'timeline-item';
+                item.innerHTML = `
+                    <span class="timeline-time">${reading.time}</span>
+                    <span class="timeline-value">${reading.data}</span>
+                `;
+                timeline.appendChild(item);
+            });
+        }
+
+        // Add initial loading state
+        document.querySelectorAll('.card').forEach(card => {
+            card.classList.add('loading');
+            setTimeout(() => card.classList.remove('loading'), 1000);
+        });
+    </script>
+</body>
+</html>
