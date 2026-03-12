@@ -384,6 +384,40 @@
             color: white;
             font-weight: 500;
         }
+
+        /* Alarm Control Button */
+        .alarm-control {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+        }
+
+        .mute-btn {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 1.2em;
+        }
+
+        .mute-btn:hover {
+            background: rgba(255,255,255,0.2);
+            transform: scale(1.1);
+        }
+
+        .mute-btn.muted {
+            background: #ef4444;
+            color: white;
+        }
         
         /* Footer */
         .footer {
@@ -569,6 +603,13 @@
         </div>
     </div>
 
+    <!-- Alarm Control Button -->
+    <div class="alarm-control">
+        <div id="muteBtn" class="mute-btn" onclick="toggleMute()">
+            <i class="fas fa-volume-up"></i>
+        </div>
+    </div>
+
     <script>
         // MQTT Configuration
         const mqttConfig = {
@@ -591,10 +632,117 @@
         const coStatus = document.getElementById('coStatus');
         const uptimeSpan = document.getElementById('uptime');
         const timeline = document.getElementById('timeline');
+        const muteBtn = document.getElementById('muteBtn');
+
+        // Audio Context for beep generation
+        let audioContext = null;
+        let isMuted = false;
+        let currentAlarmInterval = null;
+        let lastFairAlert = 0;
+        let lastCOLevel = 0;
+        let lastTempLevel = 0;
+        let continuousAlarmActive = false;
 
         // System uptime tracking
         let startTime = Date.now();
         let recentReadings = [];
+
+        // Initialize audio context on user interaction (required by browsers)
+        function initAudio() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+
+        // Generate beep sound
+        function beep(frequency = 800, duration = 200, type = 'sine') {
+            if (isMuted || !audioContext) return;
+            
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = frequency;
+            oscillator.type = type;
+            
+            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration / 1000);
+            
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + duration / 1000);
+        }
+
+        // Toggle mute
+        function toggleMute() {
+            isMuted = !isMuted;
+            if (isMuted) {
+                muteBtn.innerHTML = '<i class="fas fa-volume-mute"></i>';
+                muteBtn.classList.add('muted');
+                // Stop all alarms when muted
+                if (currentAlarmInterval) {
+                    clearInterval(currentAlarmInterval);
+                    currentAlarmInterval = null;
+                }
+                continuousAlarmActive = false;
+            } else {
+                muteBtn.innerHTML = '<i class="fas fa-volume-up"></i>';
+                muteBtn.classList.remove('muted');
+                // Resume alarms based on current levels
+                checkAndTriggerAlarms(lastCOLevel, lastTempLevel);
+            }
+        }
+
+        // Check and trigger appropriate alarms
+        function checkAndTriggerAlarms(co, temp) {
+            if (isMuted) return;
+
+            // Clear any existing alarms
+            if (currentAlarmInterval) {
+                clearInterval(currentAlarmInterval);
+                currentAlarmInterval = null;
+            }
+            continuousAlarmActive = false;
+
+            // Temperature alarm (30°C threshold)
+            if (temp >= 30) {
+                continuousAlarmActive = true;
+                triggerContinuousAlarm();
+                return;
+            }
+
+            // CO level alarms
+            if (co >= 150) {
+                // BAD - Continuous alarm
+                continuousAlarmActive = true;
+                triggerContinuousAlarm();
+            } else if (co >= 100) {
+                // POOR - Beep every 3 seconds
+                currentAlarmInterval = setInterval(() => {
+                    if (!isMuted && !continuousAlarmActive) {
+                        beep(600, 200, 'sawtooth');
+                    }
+                }, 3000);
+            } else if (co >= 50) {
+                // FAIR - Beep once
+                if (Date.now() - lastFairAlert > 20000) { // Once per minute
+                    beep(400, 300, 'sine');
+                    lastFairAlert = Date.now();
+                }
+            }
+        }
+
+        // Trigger continuous alarm
+        function triggerContinuousAlarm() {
+            if (continuousAlarmActive && !isMuted) {
+                beep(1000, 500, 'square');
+                setTimeout(triggerContinuousAlarm, 500);
+            }
+        }
 
         // Update uptime every second
         setInterval(() => {
@@ -624,6 +772,9 @@
             client.subscribe(mqttConfig.topic, (err) => {
                 if (err) console.error('Subscription error:', err);
             });
+            
+            // Initialize audio on connection
+            initAudio();
         });
 
         // Connection error
@@ -644,6 +795,7 @@
                 
                 if (coMatch) {
                     const co = parseInt(coMatch[1]);
+                    lastCOLevel = co;
                     
                     // Animate number change
                     animateValue(coValue, parseInt(coValue.textContent) || 0, co, 500);
@@ -666,7 +818,17 @@
                 
                 if (tempMatch) {
                     const temp = parseFloat(tempMatch[1]);
+                    lastTempLevel = temp;
                     tempValue.innerHTML = temp.toFixed(1) + '<span style="font-size: 0.5em;">°C</span>';
+                    
+                    // Visual warning for high temperature
+                    if (temp >= 30) {
+                        document.querySelector('.card:nth-child(2)').style.borderColor = '#ef4444';
+                        document.querySelector('.card:nth-child(2)').style.boxShadow = '0 0 20px rgba(239, 68, 68, 0.3)';
+                    } else {
+                        document.querySelector('.card:nth-child(2)').style.borderColor = 'rgba(255,255,255,0.1)';
+                        document.querySelector('.card:nth-child(2)').style.boxShadow = 'none';
+                    }
                 }
                 
                 if (humMatch) {
@@ -693,6 +855,11 @@
                 // Add to timeline
                 addToTimeline(data, timeString);
                 
+                // Check and trigger alarms
+                if (lastCOLevel !== undefined && lastTempLevel !== undefined) {
+                    checkAndTriggerAlarms(lastCOLevel, lastTempLevel);
+                }
+                
             } catch (e) {
                 console.error('Error parsing data:', e);
             }
@@ -702,6 +869,13 @@
         client.on('close', () => {
             statusLed.className = 'status-led disconnected';
             statusText.innerHTML = '<i class="fas fa-plug"></i> Disconnected - Reconnecting...';
+            
+            // Stop alarms on disconnect
+            if (currentAlarmInterval) {
+                clearInterval(currentAlarmInterval);
+                currentAlarmInterval = null;
+            }
+            continuousAlarmActive = false;
         });
 
         // Helper function to animate number changes
@@ -745,6 +919,10 @@
             card.classList.add('loading');
             setTimeout(() => card.classList.remove('loading'), 1000);
         });
+
+        // Initialize audio on any user interaction (required by browsers)
+        document.addEventListener('click', initAudio, { once: true });
+        document.addEventListener('touchstart', initAudio, { once: true });
     </script>
 </body>
 </html>
